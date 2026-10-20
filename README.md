@@ -1,58 +1,98 @@
 # Huffman Coding of 8-Bit Sampled Music
 
-ECE 646 — Homework 5, Problem 5.X1. An implementation, written from scratch,
-of the (binary) Huffman coding algorithm, used to losslessly compress the
-8-bit sampled music file `music3b.wav`.
+This repository holds the code used for Problem 5.X1, which tasks us with implementing
+the binary Huffman encoder on an audio file.
 
-## What the assignment asked for
+## Where to find work for each problem/task assigned
 
-1. Read the music file.
-2. Calculate the empirical distribution of the samples.
-3. Calculate the entropy of the file (iid assumption).
-4. Build the (binary) Huffman codewords and put them in a table.
-5. Encode the data with the table; compare the compressed size with the
-   entropy bound.
-6. Decode the data with the table and verify that it matches the original.
-
-Hand-in: a description of the algorithm, the program code, and the print-out
-from a test run verifying compression and losslessness. All three live in
-this repository (see below).
+| Task | What it asks for | Where it's implemented (entry point) |
+| --- | --- | --- |
+| 1 · program step | Read the music file `music3b.wav` into memory | `preprocess.py` — module top level: `wavfile.read("music3b.wav")`                    |
+| 2 · program step | Calculate the empirical distribution | `preprocess.py` — module top level: `np.unique(data, return_counts=True)` → `empirical_distribution` |
+| 3 · program step | Calculate the entropy of the file (iid assumption) | `__init__.py` — calls `utils.entropy(probabilities)` (defined in `utils.py`)            |
+| 4 · program step | Calculate the (binary) Huffman codewords and put them in a table | `huffman.py` — `binary_huffman(...)`, core loop `_HuffmanLayer.step()`; invoked from `preprocess.py` → `huffman_encoder` / `huffman_decoder` |
+| 5 · program step | Encode the data with the table; size vs. the entropy bound | `__init__.py` — bit-packing encode (`chain`/`join` over codewords) + `ceil(len(encoded_bits) / 8)`, compared with `entropy()` bound |
+| 6 · program step | Decode the data with the table; verify it matches the original | `__init__.py` — greedy decode loop over `huffman_decoder`; `np.all(data == decoded_data)` raises on mismatch |
+| H1 · hand-in | A description of the algorithm you use | README — “The algorithm” section (data structures + procedure) |
+| H2 · hand-in | Program code clear enough to see how the algorithm is implemented | All source files — commented `huffman.py`, `utils.py`, `preprocess.py`, `__init__.py` |
+| H3(a) · hand-in | Test-run print-out verifying: how much the data was compressed | `__init__.py` — “Length of compressed data” / “Compression ratio” prints; see “Output” below |
+| H3(b) · hand-in | Test-run print-out verifying: data unchanged after encoding/decoding | `__init__.py` — lossless checks (no `RuntimeError` ⇒ unchanged); see “Output” below |
 
 ## Files
 
-| File           | Role                                                                        |
-| -------------- | --------------------------------------------------------------------------- |
-| `huffman.py`   | The from-scratch Huffman implementation (`binary_huffman`)                  |
-| `utils.py`     | Helpers: Shannon entropy, bit-stack utilities, CSV export                   |
-| `preprocess.py`| Reads `music3b.wav`, builds the empirical distribution and the code tables  |
-| `__init__.py`  | End-to-end test run: encodes, packs, decodes, verifies, prints results      |
-| `music3b.wav`  | The 8-bit sampled music file (12 kHz, 132,000 samples)                      |
+The table below lists the Python files used in this project.
+
+| File           | Role                                                                         |
+| -------------- | ---------------------------------------------------------------------------  |
+| `huffman.py`   | Implementation of the binary Huffman code (`binary_huffman`)                 |
+| `utils.py`     | Assorted utility functions with bits, entropy, and the like                  |
+| `preprocess.py`| Reads `music3b.wav` and builds the empirical distribution and the code tables|
+| `__init__.py`  | The primary file that handles tasks 3 and later                              |
+| `music3b.wav`  | The 8-bit sampled music file                                                 |
 
 ## The algorithm
 
-Each distinct sample value starts as its own node (`_Entry`: symbol +
-probability). Entries are wrapped in `_Aggregator` groups, and all groups live
-in a `_HuffmanLayer` sorted by decreasing probability. The core loop:
+### Background and data structures used
 
-1. Pop the two least-probable groups.
-2. Push bit `0` onto the bit-stack of every entry in one, and bit `1` onto
-   every entry in the other.
-3. Merge the two groups, push the merged group back, and re-sort.
+I will deliberately leave out micro-optimizations and edge-case handling for
+brevity's sake; you're more than welcome to examine `huffman.py` for the
+nitty-gritty details if you are curious. Note that I use "symbol" to refer to
+an element in the support set. This term might be nonstandard; you've been
+warned.
 
-Repeat until a single group remains. Because each entry keeps its bits in a
-stack in *reverse* order (the bit assigned at the last merge is the most
-significant), a merge only touches the entries of the two groups being
-merged. When reading out a codeword, the stack is reversed and joined; a
-sentinel `1` is prepended as the most significant bit so that leading zeros
-survive integer conversion, and the sentinel is stripped afterwards. The
-result is a prefix-free table mapping each symbol to a codeword.
+My implementation of the Huffman coder closely mirrors the by-hand way of doing it
+through the use of custom data structures, defined below. (The actual code prefixes
+their names with an underscore to mark as "private." I will be dropping those for 
+convenience's sake.)
+- `Entry`: the underlying element of the empirical distribution, holding
+    - an element of the support,
+    - that element's empirical probability, and
+    - a (mutable) list of bits that will get updated in Huffman steps.
+- `Aggregator`: an abstraction of grouping multiple `Entry`s when combining the
+least probable.
+- `HuffmanLayer`: a specific layout of `Aggregators` and their associated `Entry`
+assignments. When initializing the algorithm, each `Aggregator` holds exactly
+one `Entry`. When taking a Huffman step, the least-probable combine into a single
+aggregator with its probability being given a sum.
 
-Encoding replaces each sample by its codeword and packs the resulting bit
-stream into bytes. Decoding is the greedy left-to-right inverse: accumulate
-bits until the buffer matches a codeword, emit the symbol, reset the buffer
-(prefix-freeness guarantees this is unambiguous).
+### The algorithm
 
-## Running it
+#### Givens
+
+Assume we're given two
+equal-length `Sequence`s (Python classes that have notions of length and
+indexing), with one sequence containing the support and the other containing
+the probability. The $i^\text{th}$ element of the support corresponds to the
+$i^\text{th}$ probability. (In essence, we have the empirical distribution expressed
+slightly differently.) The process is thus as follows.
+
+#### Procedure
+
+1. Begin by assigning each element-probability pair into its own `Entry`, which is
+then put into its own `Aggregator` which then forms the inital `HuffmanLayer`.
+2. Perform the Huffman step (`HuffmanLayer`s have a `.step()` method that represents this).
+    1. Remove the two least probable `Aggregator`s.
+    2. Prepend a `0` to the `Entry`s in one of the `Aggregator`s and a `1` to
+       the `Entry`s in the other.
+    3. Merge the `Aggregator`s into a single `Aggregator`.
+    5. Put the merged `Aggregator` back into the `HuffmanLayer`.
+3. Attempt to take another Huffman step.
+    - If the step **does not raise** a `StopIteration` error, repeat step 2.
+    - Else, there is one `Aggregator` left, and there are no more steps to take.
+4. At this point, each `Entry` in the lone `Aggregator` has codewords that correspond
+to the Huffman code. For each `Entry`, pull out the symbol and associate with it
+the completed codeword to get a map (in Python, a `dict`) from symbols to codewords.
+5. Return that map.
+
+The above yields the Huffman encoder. As the codewords are unique, one can simply
+swap the keys and values of the `dict` to produce a decoder:
+```py
+huffman_decoder = {
+    codeword: symbol for symbol, codeword in huffman_encoder.items()
+}
+```
+
+## How to run the code
 
 Requires Python ≥ 3.10 with `numpy` and `scipy`:
 
@@ -61,11 +101,14 @@ pip install -r requirements.txt
 python __init__.py
 ```
 
-The script must be run from this directory (next to `music3b.wav`). It
-verifies that encoding followed by decoding reproduces the original samples
-and raises an error if it does not.
+The script must be run in this directory (next to `music3b.wav`). It will compute and print
+- the Shannon entropy of `music3b.wav`,
+- the expected Huffman code length of `music3b.wav`,
+- the length of the music data after Huffman coding,
+- the length of the original music data, and
+- the ratio of the former and the latter ("compression ratio").
 
-### Sample test-run print-out
+## Output
 
 ```
 Shannon entropy of empirical distribution: 4.72
@@ -74,17 +117,3 @@ Length of compressed data: 78366
 Actual length: 132000
 Compression ratio: 0.59
 ```
-
-- Entropy bound under the iid assumption: `132000 × 4.72 ≈ 623,000 bits ≈
-  77,900 bytes`; the packed Huffman stream is `78,366` bytes — within
-  0.6% of the bound, the gap being the (small) coding redundancy plus the
-  sub-byte packing slack.
-- The decode/verify step ends without error, i.e. the decoded data is
-  identical to the original.
-
-## Interactive notebook
-
-`huffman-coding-music.ipynb` is a Google Colab notebook that walks through
-all six steps with the exact same code and produces the print-outs above.
-To run it: upload `huffman-coding-music.ipynb` to Colab, run all cells, and
-select `music3b.wav` when the upload widget appears.

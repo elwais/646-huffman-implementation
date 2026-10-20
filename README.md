@@ -7,18 +7,18 @@ the binary Huffman encoder on an audio file.
 
 | Task | What it asks for | Where it's implemented (entry point) |
 | --- | --- | --- |
-| 1 · program step | Read the music file `music3b.wav` into memory | `preprocess.py` — module top level: `wavfile.read("music3b.wav")`                    |
-| 2 · program step | Calculate the empirical distribution | `preprocess.py` — module top level: `np.unique(data, return_counts=True)` → `empirical_distribution` |
-| 3 · program step | Calculate the entropy of the file (iid assumption) | `__init__.py` — calls `utils.entropy(probabilities)` (defined in `utils.py`)            |
-| 4 · program step | Calculate the (binary) Huffman codewords and put them in a table | `huffman.py` — `binary_huffman(...)`, core loop `_HuffmanLayer.step()`; invoked from `preprocess.py` → `huffman_encoder` / `huffman_decoder` |
-| 5 · program step | Encode the data with the table; size vs. the entropy bound | `__init__.py` — bit-packing encode (`chain`/`join` over codewords) + `ceil(len(encoded_bits) / 8)`, compared with `entropy()` bound |
-| 6 · program step | Decode the data with the table; verify it matches the original | `__init__.py` — greedy decode loop over `huffman_decoder`; `np.all(data == decoded_data)` raises on mismatch |
-| H1 · hand-in | A description of the algorithm you use | README — “The algorithm” section (data structures + procedure) |
-| H2 · hand-in | Program code clear enough to see how the algorithm is implemented | All source files — commented `huffman.py`, `utils.py`, `preprocess.py`, `__init__.py` |
-| H3(a) · hand-in | Test-run print-out verifying: how much the data was compressed | `__init__.py` — “Length of compressed data” / “Compression ratio” prints; see “Output” below |
-| H3(b) · hand-in | Test-run print-out verifying: data unchanged after encoding/decoding | `__init__.py` — lossless checks (no `RuntimeError` ⇒ unchanged); see “Output” below |
+| 1 (program step) | Read the music file `music3b.wav` | `preprocess.py`: `wavfile.read("music3b.wav")` |
+| 2 (program step) | Calculate the empirical distribution | `preprocess.py`: `np.unique(data, return_counts=True)`, normalized into `empirical_distribution` |
+| 3 (program step) | Calculate the entropy (iid assumption) | `__init__.py`: `utils.entropy(probabilities)` |
+| 4 (program step) | Calculate the binary Huffman codewords; put them in a table | `huffman.py`: `binary_huffman(...)` (core loop `_HuffmanLayer.step()`), called from `preprocess.py` to build `huffman_encoder` and `huffman_decoder` |
+| 5 (program step) | Encode the data with the table; compare size with the entropy bound | `__init__.py`: encode loop (bit-packing via `chain`/`join`), then `ceil(len(encoded_bits) / 8)`; compared with the `entropy()` bound |
+| 6 (program step) | Decode the data with the table; verify it matches the original | `__init__.py`: decode loop over `huffman_decoder`; `np.all(data == decoded_data)` raises on mismatch |
+| H1 (hand-in) | A description of the algorithm | `README.md`: "The algorithm" section |
+| H2 (hand-in) | Code clear enough to show how the algorithm is implemented | commented sources `huffman.py`, `utils.py`, `preprocess.py`, `__init__.py` |
+| H3a (hand-in) | Print-out verifying how much the data was compressed | `__init__.py`: prints "Length of compressed data" and "Compression ratio"; see "Output" below |
+| H3b (hand-in) | Print-out verifying the data is unchanged after encode/decode | `__init__.py`: lossless checks (a `RuntimeError` means mismatch); see "Output" below |
 
-## Files
+## Purpose of each file in this repository
 
 The table below lists the Python files used in this project.
 
@@ -94,7 +94,7 @@ huffman_decoder = {
 
 ## How to run the code
 
-Requires Python ≥ 3.10 with `numpy` and `scipy`:
+Requires Python >= 3.10 with `numpy` and `scipy`:
 
 ```bash
 pip install -r requirements.txt
